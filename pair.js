@@ -1,6 +1,5 @@
 const express = require('express');
 const fs = require('fs');
-const { exec } = require("child_process");
 let router = express.Router()
 const pino = require("pino");
 const {
@@ -30,7 +29,9 @@ router.get('/', async (req, res) => {
                 },
                 printQRInTerminal: false,
                 logger: pino({ level: "fatal" }).child({ level: "fatal" }),
-                browser: Browsers.macOS("Safari"),
+                browser: Browsers.macOS("Desktop"),
+                syncFullHistory: true,
+                markOnlineOnConnect: false,
             });
 
             if (!PrabathPairWeb.authState.creds.registered) {
@@ -45,6 +46,10 @@ router.get('/', async (req, res) => {
             PrabathPairWeb.ev.on('creds.update', saveCreds);
             PrabathPairWeb.ev.on("connection.update", async (s) => {
                 const { connection, lastDisconnect } = s;
+                console.log('Connection status:', connection);
+                if (lastDisconnect) {
+                    console.log('Last disconnect reason:', lastDisconnect.error);
+                }
                 if (connection === "open") {
                     try {
                         await delay(10000);
@@ -74,21 +79,20 @@ router.get('/', async (req, res) => {
                         });
 
                     } catch (e) {
-                        exec('pm2 restart prabath');
+                        console.log('Error uploading session to Mega:', e.message);
                     }
 
                     await delay(100);
                     return await removeFile('./session');
                     process.exit(0);
-                } else if (connection === "close" && lastDisconnect && lastDisconnect.error && lastDisconnect.error.output.statusCode !== 401) {
-                    await delay(10000);
+                } else if (connection === "close" && lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode !== 401) {
+                    console.log('Connection closed, attempting reconnect...');
+                    await delay(3000);
                     PrabathPair();
                 }
             });
         } catch (err) {
-            exec('pm2 restart prabath-md');
-            console.log("service restarted");
-            PrabathPair();
+            console.log("Pairing error:", err.message);
             await removeFile('./session');
             if (!res.headersSent) {
                 await res.send({ code: "Service Unavailable" });
@@ -100,7 +104,6 @@ router.get('/', async (req, res) => {
 
 process.on('uncaughtException', function (err) {
     console.log('Caught exception: ' + err);
-    exec('pm2 restart prabath');
 });
 
 
